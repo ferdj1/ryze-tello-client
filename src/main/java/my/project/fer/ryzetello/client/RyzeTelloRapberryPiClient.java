@@ -1,6 +1,6 @@
 package my.project.fer.ryzetello.client;
 
-import my.project.fer.ryzetello.constants.MessageConstants;
+//import my.project.fer.ryzetello.constants.MessageConstants;
 
 import java.io.IOException;
 import java.net.DatagramPacket;
@@ -50,7 +50,8 @@ public class RyzeTelloRapberryPiClient implements Runnable {
             //System.out.printf("RaspPi Client started on %s:%d.\n", clientSocket.getInetAddress().getHostAddress(), clientSocket.getPort());
 
             // Register phase
-            final String registerMessage = MessageConstants.REGISTER;
+            //final String registerMessage = MessageConstants.REGISTER;
+            final String registerMessage = "REGISTER";
 
             sendBuffer = registerMessage.getBytes();
             DatagramPacket sendPacket = new DatagramPacket(sendBuffer, sendBuffer.length, InetAddress.getByName(coordinatorServerHost), coordinatorServerPort);
