@@ -2,11 +2,18 @@ package my.project.fer.ryzetello.client;
 
 //import my.project.fer.ryzetello.constants.MessageConstants;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.net.Socket;
 import java.net.SocketException;
+import java.net.UnknownHostException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -16,15 +23,16 @@ import java.util.concurrent.TimeUnit;
  * Client placed on RaspberryPi that registers drone on the coordinator server and sends commands from that server to
  * the drone
  */
-public class RyzeTelloRapberryPiClient implements Runnable {
+public class RyzeTelloRaspberryPiTcpClient implements Runnable {
 
     private static final int DEFAULT_RASPBERRY_PI_CLIENT_STATE_PORT = 8890;
-    private static final int DEFAULT_RASPBERRY_PI_CLIENT_VIDEO_PORT = 11111;
+    //private static final int DEFAULT_RASPBERRY_PI_CLIENT_VIDEO_PORT = 11111;
     private static final String DEFAULT_COORDINATOR_SERVER_HOST = "127.0.0.1";
     private static final int DEFAULT_COORDINATOR_SERVER_PORT = 50000;
     private static final int DEFAULT_COORDINATOR_SERVER_VIDEO_PORT = 50010;
     private static final String DEFAULT_DRONE_HOST = "192.168.10.1";
     private static final int DEFAULT_DRONE_PORT = 8889;
+    private static final int DEFAULT_DRONE_VIDEO_PORT = 11111;
 
     // TODO: Move to other class
     public static final String COMMAND = "command";
@@ -46,12 +54,25 @@ public class RyzeTelloRapberryPiClient implements Runnable {
 
     private final String droneHost;
     private final int dronePort;
+    private final int droneVideoPort;
 
     private DatagramSocket clientSocket;
+    private Socket clientTcpSocket;
+    private Socket videoClientTcpSocket;
 
+    // TCP in/out streams
+    private PrintWriter out;
+    private BufferedReader in;
+
+    // TCP video in/out streams
+    private BufferedOutputStream videoOut;
+    private BufferedInputStream videoIn;
+
+    // UDP buffers
     private byte[] receiveBuffer = new byte[1024];
     private byte[] sendBuffer = new byte[1024];
 
+    // UDP video buffers
     private byte[] receiveVideoBuffer = new byte[1024];
     private byte[] sendVideoBuffer = new byte[1024];
 
@@ -60,7 +81,9 @@ public class RyzeTelloRapberryPiClient implements Runnable {
     private ExecutorService executorService;
     private ScheduledExecutorService scheduledExecutorService;
 
-    public RyzeTelloRapberryPiClient() {
+    private ExecutorService clientsExecutorService;
+
+    public RyzeTelloRaspberryPiTcpClient() {
         final String envCoordinatorHost = System.getenv("RYZE_TELLO_COORDINATOR_SERVER_HOST");
         final String envCoordinatorPort = System.getenv("RYZE_TELLO_COORDINATOR_SERVER_PORT");
         final String envCoordinatorVideoPort = System.getenv("RYZE_TELLO_COORDINATOR_SERVER_VIDEO_PORT");
@@ -74,69 +97,55 @@ public class RyzeTelloRapberryPiClient implements Runnable {
 
         final String envDroneHost = System.getenv("RYZE_TELLO_DRONE_HOST");
         final String envDronePort = System.getenv("RYZE_TELLO_DRONE_PORT");
+        final String envDroneVideoPort = System.getenv("RYZE_TELLO_DRONE_VIDEO_PORT");
 
         this.droneHost = envDroneHost == null ? DEFAULT_DRONE_HOST : envDroneHost;
         this.dronePort = envDronePort == null ? DEFAULT_DRONE_PORT : Integer.parseInt(envDronePort);
+        this.droneVideoPort = envDroneVideoPort == null ? DEFAULT_DRONE_VIDEO_PORT : Integer.parseInt(envDroneVideoPort);
+
 
         this.executorService = Executors.newFixedThreadPool(1);
         this.scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
+        this.clientsExecutorService = Executors.newFixedThreadPool(2);
 
         try {
             this.clientSocket = new DatagramSocket(DEFAULT_RASPBERRY_PI_CLIENT_STATE_PORT);
-        } catch (SocketException e) {
+            this.clientTcpSocket = new Socket(coordinatorServerHost, coordinatorServerPort);
+            this.videoClientTcpSocket = new Socket(coordinatorServerHost, coordinatorServerVideoPort);
+
+            this.out = new PrintWriter(clientTcpSocket.getOutputStream(), true);
+            this.in = new BufferedReader(new InputStreamReader(clientTcpSocket.getInputStream()));
+
+            this.videoOut = new BufferedOutputStream(videoClientTcpSocket.getOutputStream());
+            this.videoIn = new BufferedInputStream(videoClientTcpSocket.getInputStream());
+        } catch (Exception e) {
             System.err.println("Socket error. Shutting down...");
             System.exit(1);
         }
     }
 
-    @Override
-    public void run() {
-        try {
-            //System.out.printf("RaspPi Client started on %s:%d.\n", clientSocket.getInetAddress().getHostAddress(), clientSocket.getPort());
+    private class TcpClientRunnable implements Runnable {
 
-            // Enable drone SDK mode
-            sendBuffer = COMMAND.getBytes();
-            DatagramPacket sendPacket =
-                new DatagramPacket(sendBuffer, sendBuffer.length, InetAddress.getByName(droneHost), dronePort);
-            clientSocket.send(sendPacket);
-            sendBuffer = new byte[1024];
-
-            // Register phase
-            sendBuffer = REGISTER.getBytes();
-            sendPacket = new DatagramPacket(sendBuffer, sendBuffer.length, InetAddress.getByName(coordinatorServerHost),
-                coordinatorServerPort);
-            clientSocket.send(sendPacket);
-            sendBuffer = new byte[1024];
-            //
-
-            // Wait for commands and state
-            while (true) {
-                DatagramPacket receivePacket = new DatagramPacket(receiveBuffer, receiveBuffer.length);
-                clientSocket.receive(receivePacket);
-
-                String receivedMessage = new String(receivePacket.getData()).replaceAll("\0", "");
-                System.out.println("Client received message: " + receivedMessage);
-
-                if (receivePacket.getAddress().getHostAddress().equals(coordinatorServerHost)) {
+        @Override
+        public void run() {
+            try {
+                String receivedMessage;
+                while ((receivedMessage = in.readLine()) != null) {
+                    System.out.println("Client received message: " + receivedMessage);
 
                     if (receivedMessage.startsWith(HEALTH_CHECK)) {
                         // TODO Check drone state, for now, send ALL_OK
                         // Send ALL_OK to coordinator
                         System.out.println("Sending message to coordinator: " + HEALTH_CHECK_ALL_OK);
-                        sendBuffer = HEALTH_CHECK_ALL_OK.getBytes();
-                        sendPacket = new DatagramPacket(sendBuffer, sendBuffer.length,
-                            InetAddress.getByName(coordinatorServerHost), coordinatorServerPort);
-                        clientSocket.send(sendPacket);
-
-                        sendBuffer = new byte[1024];
-                    } else if (receivedMessage.startsWith(STREAM)) {
+                        out.print(HEALTH_CHECK_ALL_OK);
+                    } else if (receivedMessage.startsWith(STREAM))   {
                         if (receivedMessage.startsWith(STREAM_ON)) {
                             // Turn on video stream
                             executorService.submit(new RyzeTelloRaspberryPiVideoClient());
 
                             // Send streamon command to drone
                             sendBuffer = receivedMessage.getBytes();
-                            sendPacket =
+                            DatagramPacket sendPacket =
                                 new DatagramPacket(sendBuffer, sendBuffer.length, InetAddress.getByName(droneHost),
                                     dronePort);
                             clientSocket.send(sendPacket);
@@ -145,7 +154,7 @@ public class RyzeTelloRapberryPiClient implements Runnable {
                         } else if (receivedMessage.startsWith(STREAM_OFF)) {
                             // Send streamon command to drone
                             sendBuffer = receivedMessage.getBytes();
-                            sendPacket =
+                            DatagramPacket sendPacket =
                                 new DatagramPacket(sendBuffer, sendBuffer.length, InetAddress.getByName(droneHost),
                                     dronePort);
                             clientSocket.send(sendPacket);
@@ -158,13 +167,43 @@ public class RyzeTelloRapberryPiClient implements Runnable {
                     } else {
                         // Send command to drone
                         sendBuffer = receivedMessage.getBytes();
-                        sendPacket = new DatagramPacket(sendBuffer, sendBuffer.length, InetAddress.getByName(droneHost),
+                        DatagramPacket sendPacket = new DatagramPacket(sendBuffer, sendBuffer.length, InetAddress.getByName(droneHost),
                             dronePort);
                         clientSocket.send(sendPacket);
 
                         sendBuffer = new byte[1024];
                     }
-                } else if (receivePacket.getAddress().getHostAddress().equals(droneHost)) {
+
+                }
+
+            } catch (Exception e) {
+                System.err.println("Socket error. Shutting down...");
+                System.exit(1);
+            }
+
+        }
+
+    }
+
+    private class UdpClientRunnable implements Runnable {
+
+        @Override
+        public void run() {
+            try {
+                // Enable drone SDK mode
+                sendBuffer = COMMAND.getBytes();
+                DatagramPacket sendPacket =
+                    new DatagramPacket(sendBuffer, sendBuffer.length, InetAddress.getByName(droneHost), dronePort);
+                clientSocket.send(sendPacket);
+                sendBuffer = new byte[1024];
+
+                while (true) {
+                    DatagramPacket receivePacket = new DatagramPacket(receiveBuffer, receiveBuffer.length);
+                    clientSocket.receive(receivePacket);
+
+                    String receivedMessage = new String(receivePacket.getData()).replaceAll("\0", "");
+                    System.out.println("Client received message: " + receivedMessage);
+
                     if (lastReceivedDroneStateTimestamp == -1) {
                         scheduledExecutorService
                             .scheduleAtFixedRate(new DroneHealthCheckRunnable(), DRONE_HEALTH_CHECK_DELAY_SECONDS,
@@ -172,22 +211,28 @@ public class RyzeTelloRapberryPiClient implements Runnable {
                     }
 
                     lastReceivedDroneStateTimestamp = System.currentTimeMillis();
+
+                    receiveBuffer = new byte[1024];
                 }
-
-                receiveBuffer = new byte[1024];
+            } catch (Exception e) {
+                System.err.println("Socket error. Shutting down...");
+                System.exit(1);
             }
-        } catch (IOException e) {
-            System.err.println("Socket error. Shutting down...");
 
-            // TODO??: Send HEALTH_CHECK_DRONE_OFFLINE to coordinator
-
-            System.exit(1);
         }
 
     }
 
+
+    @Override
+    public void run() {
+        //System.out.printf("RaspPi Client started on %s:%d.\n", clientSocket.getInetAddress().getHostAddress(), clientSocket.getPort());
+        clientsExecutorService.submit(new TcpClientRunnable());
+        clientsExecutorService.submit(new UdpClientRunnable());
+    }
+
     public static void main(String[] args) {
-        RyzeTelloRapberryPiClient client = new RyzeTelloRapberryPiClient();
+        RyzeTelloRaspberryPiTcpClient client = new RyzeTelloRaspberryPiTcpClient();
 
         ExecutorService executorService = Executors.newFixedThreadPool(1);
         executorService.submit(client);
@@ -203,17 +248,13 @@ public class RyzeTelloRapberryPiClient implements Runnable {
 
             if (difference > DRONE_HEALTH_CHECK_DELAY_MILLISECONDS) {
                 // Send HEALTH_CHECK_DRONE_OFFLINE to coordinator
-                try {
-                    System.out.println("Sending message to coordinator: " + HEALTH_CHECK_DRONE_OFFLINE);
-                    sendBuffer = HEALTH_CHECK_DRONE_OFFLINE.getBytes();
-                    DatagramPacket sendPacket = new DatagramPacket(sendBuffer, sendBuffer.length,
-                        InetAddress.getByName(coordinatorServerHost), coordinatorServerPort);
-                    clientSocket.send(sendPacket);
+                System.out.println("Sending message to coordinator: " + HEALTH_CHECK_DRONE_OFFLINE);
+                out.println(HEALTH_CHECK_DRONE_OFFLINE);
 
-                    sendBuffer = new byte[1024];
-                } catch (IOException e) {
-                    System.out.println("Error while sending 'drone offline' message to coordinator.");
-                }
+                scheduledExecutorService.shutdownNow();
+
+                //
+                System.exit(1);
             }
         }
 
@@ -223,7 +264,7 @@ public class RyzeTelloRapberryPiClient implements Runnable {
 
         @Override
         public void run() {
-            try (DatagramSocket clientVideoSocket = new DatagramSocket(DEFAULT_RASPBERRY_PI_CLIENT_VIDEO_PORT)) {
+            try (DatagramSocket clientVideoSocket = new DatagramSocket(droneVideoPort)) {
 
                 // Wait for stream data
                 while (true) {
@@ -239,6 +280,8 @@ public class RyzeTelloRapberryPiClient implements Runnable {
 
                     // Send video to coordinator server
                     sendVideoBuffer = receivedVideoData;
+
+                    //videoOut.write(sendVideoBuffer);
                     DatagramPacket sendVideoPacket = new DatagramPacket(sendVideoBuffer, sendVideoBuffer.length,
                         InetAddress.getByName(coordinatorServerHost), coordinatorServerVideoPort);
                     clientVideoSocket.send(sendVideoPacket);
@@ -251,6 +294,7 @@ public class RyzeTelloRapberryPiClient implements Runnable {
             }
 
         }
+
 
     }
 
