@@ -30,9 +30,8 @@ while true; do
   done
 
   # Try to connect to internet and coordinator server via 4G
-  sakis3g connect &
+  sakis3g connect
 
-  sleep 10
   while true; do
       ping -c1 -q 40.115.62.3
       internetConnectionStatus=$?;
@@ -49,4 +48,5 @@ while true; do
   cd /home/pi/ryze-tello/
   java my.project.fer.ryzetello.client.RyzeTelloRaspberryPiTcpClient
 
+  sakis3g disconnect
 done
