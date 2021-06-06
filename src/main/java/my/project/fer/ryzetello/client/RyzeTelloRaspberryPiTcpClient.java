@@ -146,6 +146,8 @@ public class RyzeTelloRaspberryPiTcpClient implements Runnable {
                         int port = Integer.parseInt(split[1]);
 
                         RyzeTelloRaspberryPiTcpClient.this.videoPort = port;
+
+                        clientVideoSocket = new DatagramSocket(droneVideoPort);
                     } else if (receivedMessage.startsWith(HEALTH_CHECK)) {
                         // TODO Check drone state, for now, send ALL_OK
                         // Send ALL_OK to coordinator
@@ -176,9 +178,9 @@ public class RyzeTelloRaspberryPiTcpClient implements Runnable {
                             sendBuffer = new byte[1024];
 
                             // Turn off video stream
-                            clientVideoSocket.disconnect();
-                            clientVideoSocket.close();
-                            executorService.shutdown();
+                            //clientVideoSocket.disconnect();
+                            //clientVideoSocket.close();
+                            //executorService.shutdown();
                         }
                     } else {
                         // Send command to drone
@@ -302,8 +304,6 @@ public class RyzeTelloRaspberryPiTcpClient implements Runnable {
         @Override
         public void run() {
             try {
-                clientVideoSocket = new DatagramSocket(droneVideoPort);
-
                 // Wait for stream data
                 while (true) {
                     DatagramPacket receiveVideoPacket =
