@@ -129,6 +129,7 @@ public class RyzeTelloRaspberryPiTcpClient implements Runnable {
         } catch (Exception e) {
             System.err.println("Socket error. Shutting down..." + e.getMessage());
             e.printStackTrace();
+            closeSockets();
             System.exit(1);
         }
     }
@@ -199,6 +200,7 @@ public class RyzeTelloRaspberryPiTcpClient implements Runnable {
             } catch (Exception e) {
                 System.err.println("Socket error. Shutting down..." + e.getMessage());
                 e.printStackTrace();
+                closeSockets();
                 System.exit(1);
             }
 
@@ -241,6 +243,8 @@ public class RyzeTelloRaspberryPiTcpClient implements Runnable {
             } catch (Exception e) {
                 System.err.println("Socket error. Shutting down..." + e.getMessage());
                 e.printStackTrace();
+
+                closeSockets();
                 System.exit(1);
             }
 
@@ -278,6 +282,8 @@ public class RyzeTelloRaspberryPiTcpClient implements Runnable {
                 healthCheckScheduledExecutorService.shutdownNow();
 
                 //
+
+                closeSockets();
                 System.exit(1);
             }
         }
@@ -332,11 +338,23 @@ public class RyzeTelloRaspberryPiTcpClient implements Runnable {
             } catch (IOException e) {
                 System.err.println("Socket error. Shutting down..." + e.getMessage());
                 e.printStackTrace();
+                closeSockets();
                 System.exit(1);
             }
 
         }
 
+    }
+
+    private void closeSockets() {
+        clientSocket.close();
+        clientVideoSocket.close();
+        try {
+            clientTcpSocket.close();
+            videoClientTcpSocket.close();
+        } catch (IOException ioException) {
+            ioException.printStackTrace();
+        }
     }
 
 }
