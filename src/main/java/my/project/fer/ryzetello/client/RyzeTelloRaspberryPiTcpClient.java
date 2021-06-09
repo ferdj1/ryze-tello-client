@@ -127,7 +127,7 @@ public class RyzeTelloRaspberryPiTcpClient implements Runnable {
             this.videoOut = new BufferedOutputStream(videoClientTcpSocket.getOutputStream());
             this.videoIn = new BufferedInputStream(videoClientTcpSocket.getInputStream());
         } catch (Exception e) {
-            System.err.println("Socket error. Shutting down...");
+            System.err.println("Socket error. Shutting down..." + e.getMessage());
             System.exit(1);
         }
     }
@@ -196,7 +196,7 @@ public class RyzeTelloRaspberryPiTcpClient implements Runnable {
                 }
 
             } catch (Exception e) {
-                System.err.println("Socket error. Shutting down...");
+                System.err.println("Socket error. Shutting down..." + e.getMessage());
                 System.exit(1);
             }
 
@@ -237,7 +237,7 @@ public class RyzeTelloRaspberryPiTcpClient implements Runnable {
                     receiveBuffer = new byte[1024];
                 }
             } catch (Exception e) {
-                System.err.println("Socket error. Shutting down...");
+                System.err.println("Socket error. Shutting down..." + e.getMessage());
                 System.exit(1);
             }
 
@@ -327,7 +327,7 @@ public class RyzeTelloRaspberryPiTcpClient implements Runnable {
                     sendVideoBuffer = new byte[1460];
                 }
             } catch (IOException e) {
-                System.err.println("Socket error. Shutting down...");
+                System.err.println("Socket error. Shutting down..." + e.getMessage());
                 System.exit(1);
             }
 
