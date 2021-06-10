@@ -12,6 +12,9 @@ import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.Socket;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -255,15 +258,25 @@ public class RyzeTelloRaspberryPiTcpClient implements Runnable {
     @Override
     public void run() {
         //System.out.printf("RaspPi Client started on %s:%d.\n", clientSocket.getInetAddress().getHostAddress(), clientSocket.getPort());
-        clientsExecutorService.submit(new TcpClientRunnable());
-        clientsExecutorService.submit(new UdpClientRunnable());
+        List<Runnable> tasks = new ArrayList<>();
+        Runnable tcpClientRunnable = new TcpClientRunnable();
+        Runnable udpClientRunnable = new UdpClientRunnable();
+        tasks.add(tcpClientRunnable);
+        tasks.add(udpClientRunnable);
+
+        CompletableFuture<?>[] futures = tasks.stream()
+            .map(task -> CompletableFuture.runAsync(task, clientsExecutorService))
+            .toArray(CompletableFuture[]::new);
+        CompletableFuture.allOf(futures).join();
+
     }
 
     public static void main(String[] args) {
         RyzeTelloRaspberryPiTcpClient client = new RyzeTelloRaspberryPiTcpClient();
 
-        ExecutorService executorService = Executors.newFixedThreadPool(1);
-        executorService.submit(client);
+        //ExecutorService executorService = Executors.newFixedThreadPool(1);
+        //executorService.submit(client);
+        client.run();
     }
 
     private class DroneHealthCheckRunnable implements Runnable {
